@@ -272,6 +272,43 @@ A list comprehension over a nested loop is both idiomatic Python and slightly fa
 - What behaviors did you test?
 - Why were these tests important?
 
+Happy Paths
+Test	What to verify
+Single task, plenty of budget	Task appears in schedule, total_minutes_used matches duration
+Multiple tasks, all fit	All tasks present, ordered HIGH → MEDIUM → LOW
+sort_by_priority tie-break	Two HIGH tasks: MORNING one comes before EVENING one
+Daily task completed → next occurrence	mark_task_complete adds a new task with due_date + 1 day
+Weekly task completed → next occurrence	New task has due_date + 7 days
+filter_due_tasks on correct weekday	Task with recurrence_days=[0] (Monday) appears only on Mondays
+Edge Cases — Pet & Task State
+Test	Why it matters
+Pet with no tasks	filter_due_tasks([]) → empty list; generate_schedule returns schedule with 0 tasks, no crash
+All tasks already complete	filter_tasks(only_incomplete=True) returns []; nothing is scheduled
+Task with Frequency.NONE completed	next_occurrence() must return None; no new task added to pet
+remove_task on nonexistent title	Silently does nothing; pet's task list unchanged
+edit_task on nonexistent title	Silently does nothing; no crash
+Edge Cases — Scheduling & Budget
+Test	Why it matters
+Budget = 0	fit_to_budget returns []; all tasks go to skipped_tasks
+Single task exceeds budget	That task is skipped; schedule is empty but valid
+Tasks sum exactly to budget	All fit; remaining == 0 after loop
+Tasks sum to budget + 1 min	Last task is skipped (greedy cutoff behavior)
+Two tasks with identical duration, same priority	Both are handled; order is stable
+Edge Cases — Time & Conflicts
+Test	Why it matters
+Two tasks at the exact same start time	overlaps_with uses strict < — start_time < other.end_time AND other.start_time < self.end_time. Two tasks at 08:00 will overlap. Verify a warning is emitted.
+Back-to-back tasks (no gap)	Task A ends at 08:30, task B starts at 08:30. overlaps_with should return False (not a conflict). This is the boundary condition most likely to be off-by-one.
+assign_times with empty list	Returns []; no crash
+Schedule crosses midnight	A task starting at 23:50 with 20 min duration — end_time wraps past midnight. time objects don't handle this automatically; worth testing for silent bugs.
+conflict_warnings across two pets	Two pets scheduled for overlapping times produces a cross-pet warning
+Edge Cases — Recurrence & Filtering
+Test	Why it matters
+filter_due_tasks wrong weekday	Task with recurrence_days=[0] on a Tuesday → returns []
+is_daily=False task	Excluded by filter_due_tasks regardless of weekday
+filter_tasks with category + time_of_day	Both filters compose correctly; only tasks matching both pass
+TimeOfDay.ANY task with time_of_day filter active	Per the code at pawpal_system.py:464-467, ANY tasks pass through when a time filter is set — verify this intentional behavior
+filter_by_pet_or_status case-insensitive	"milo" and "Milo" match the same pet
+
 **b. Confidence**
 
 - How confident are you that your scheduler works correctly?
