@@ -11,6 +11,8 @@ from pawpal_system import (
     TimeOfDay,
 )
 
+_scheduler = Scheduler()
+
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 st.title("🐾 PawPal+")
 st.caption("Your daily pet care planner.")
@@ -140,7 +142,64 @@ else:
     tasks = selected_pet.get_tasks()
     if tasks:
         st.markdown(f"**{selected_pet.name}'s tasks:**")
-        st.table([t.to_dict() for t in tasks])
+
+        fcol1, fcol2, fcol3 = st.columns(3)
+        with fcol1:
+            sort_by = st.selectbox(
+                "Sort by",
+                ["Priority", "Time of day"],
+                key="task_sort",
+            )
+        with fcol2:
+            filter_cat = st.selectbox(
+                "Filter by category",
+                ["All"] + [c.value for c in Category],
+                key="task_filter_cat",
+            )
+        with fcol3:
+            filter_time = st.selectbox(
+                "Filter by time",
+                ["All"] + [t.value for t in TimeOfDay if t != TimeOfDay.ANY],
+                key="task_filter_time",
+            )
+
+        # Apply Scheduler filtering
+        cat_arg = CATEGORY_MAP.get(filter_cat)
+        time_arg = TIME_MAP.get(filter_time)
+        filtered = _scheduler.filter_tasks(
+            tasks,
+            only_incomplete=False,
+            category=cat_arg,
+            time_of_day=time_arg,
+        )
+
+        # Apply Scheduler sorting
+        if sort_by == "Priority":
+            display_tasks = _scheduler.sort_by_priority(filtered)
+        else:
+            display_tasks = _scheduler.sort_by_time(filtered)
+
+        if not display_tasks:
+            st.info("No tasks match the current filters.")
+        else:
+            PRIORITY_ICON = {
+                Priority.HIGH: "🔴",
+                Priority.MEDIUM: "🟡",
+                Priority.LOW: "🟢",
+            }
+            rows = []
+            for t in display_tasks:
+                rows.append({
+                    "": PRIORITY_ICON[t.priority],
+                    "Title": t.title,
+                    "Duration": f"{t.duration_minutes} min",
+                    "Category": t.category.value,
+                    "Time": t.preferred_time.value,
+                    "Priority": t.priority.value,
+                    "Daily": "Yes" if t.is_daily else "No",
+                    "Done": "✔" if t.is_complete else "",
+                })
+            st.dataframe(rows, use_container_width=True, hide_index=True)
     else:
         st.info(f"No tasks yet for {selected_pet.name}.")
 
@@ -165,25 +224,62 @@ else:
         if not sched_pet.get_tasks():
             st.warning(f"{sched_pet.name} has no tasks to schedule.")
         else:
-            schedule = Scheduler().generate_schedule(owner, sched_pet, day_start)
+            schedule = _scheduler.generate_schedule(owner, sched_pet, day_start)
 
-            st.success(
-                f"Schedule ready — {schedule.total_minutes_used} of "
-                f"{owner.available_minutes_per_day} min used."
-            )
+            # ── Conflict warnings — shown first so they're impossible to miss ──
+            if schedule.warnings:
+                n = len(schedule.warnings)
+                st.error(
+                    f"⚠️ **{n} scheduling conflict(s) detected "
+                    f"for {sched_pet.name}!** "
+                    "Two tasks overlap — review or adjust durations."
+                )
+                for w in schedule.warnings:
+                    st.warning(f"🔔 {w}")
 
+            # ── Budget summary ──
+            used = schedule.total_minutes_used
+            budget = owner.available_minutes_per_day
+            budget_pct = used / budget
+            if budget_pct >= 1.0:
+                st.warning(
+                    f"Schedule uses **{used} of {budget} min**"
+                    " — at full capacity."
+                )
+            else:
+                st.success(
+                    f"Schedule ready — **{used} of {budget} min** used "
+                    f"({int(budget_pct * 100)}%)."
+                )
+
+            # ── Scheduled tasks table ──
             if schedule.scheduled_tasks:
                 st.markdown("#### Scheduled")
+                rows = []
                 for item in schedule.scheduled_tasks:
-                    badge = "🔴" if item.task.is_high_priority() else "🟡"
-                    st.markdown(
-                        f"- {badge} **{item.display()}** — _{item.task.category.value}_"
+                    priority_icon = "🔴" if item.task.is_high_priority() else (
+                        "🟡" if item.task.priority.value == "medium" else "🟢"
+                    )
+                    rows.append({
+                        "": priority_icon,
+                        "Time slot": item.time_window(),
+                        "Task": item.task.title,
+                        "Duration": f"{item.task.duration_minutes} min",
+                        "Category": item.task.category.value,
+                        "Priority": item.task.priority.value,
+                    })
+                st.dataframe(rows, use_container_width=True, hide_index=True)
+
+            # ── Skipped tasks ──
+            if schedule.skipped_tasks:
+                st.markdown("#### Skipped (over time budget)")
+                for skipped in schedule.skipped_tasks:
+                    st.warning(
+                        f"⏭️ **{skipped.title}** "
+                        f"({skipped.duration_minutes} min, "
+                        f"{skipped.priority.value} priority)"
+                        " — didn't fit in today's budget."
                     )
 
-            if schedule.skipped_tasks:
-                st.markdown("#### Skipped (over budget)")
-                for skipped in schedule.skipped_tasks:
-                    st.markdown(f"- ~~{skipped.title}~~ ({skipped.duration_minutes} min)")
-
             if schedule.explanation:
-                st.info(schedule.explanation)
+                st.info(f"ℹ️ {schedule.explanation}")
