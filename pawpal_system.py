@@ -43,6 +43,7 @@ class CareTask:
         preferred_time: TimeOfDay = TimeOfDay.ANY,
         notes: str = "",
         is_daily: bool = True,
+        recurrence_days: Optional[list[int]] = None,
     ) -> None:
         self.title = title
         self.duration_minutes = duration_minutes
@@ -51,6 +52,10 @@ class CareTask:
         self.preferred_time = preferred_time
         self.notes = notes
         self.is_daily = is_daily
+        # Days of week this task recurs: 0=Mon … 6=Sun. Defaults to every day.
+        self.recurrence_days: list[int] = (
+            recurrence_days if recurrence_days is not None else list(range(7))
+        )
         self.is_complete: bool = False
 
     def mark_complete(self) -> None:
@@ -234,28 +239,91 @@ class Scheduler:
         schedule.explanation = self.generate_explanation(schedule)
         return schedule
 
-    def sort_by_priority(self, tasks: list[CareTask]) -> list[CareTask]:
-        """Return tasks sorted HIGH → MEDIUM → LOW priority."""
-        priority_order = {Priority.HIGH: 0, Priority.MEDIUM: 1, Priority.LOW: 2}
-        return sorted(tasks, key=lambda t: priority_order[t.priority])
+    # Lookup tables used by sort and fit methods
+    _PRIORITY_ORDER = {Priority.HIGH: 0, Priority.MEDIUM: 1, Priority.LOW: 2}
+    _TIME_ORDER = {
+        TimeOfDay.MORNING: 0,
+        TimeOfDay.AFTERNOON: 1,
+        TimeOfDay.EVENING: 2,
+        TimeOfDay.ANY: 3,
+    }
 
-    def filter_due_tasks(self, tasks: list[CareTask]) -> list[CareTask]:
-        """Return only tasks marked as daily (is_daily=True)."""
-        return [t for t in tasks if t.is_daily]
+    def sort_by_priority(self, tasks: list[CareTask]) -> list[CareTask]:
+        """Return tasks sorted HIGH → MEDIUM → LOW, then by preferred time of day."""
+        return sorted(
+            tasks,
+            key=lambda t: (
+                self._PRIORITY_ORDER[t.priority],
+                self._TIME_ORDER[t.preferred_time],
+            ),
+        )
+
+    def filter_due_tasks(
+        self,
+        tasks: list[CareTask],
+        for_date: Optional[date] = None,
+    ) -> list[CareTask]:
+        """Return tasks due on for_date (today by default)."""
+        target = for_date or date.today()
+        weekday = target.weekday()  # 0=Mon … 6=Sun
+        return [
+            t for t in tasks
+            if t.is_daily and weekday in t.recurrence_days
+        ]
+
+    def filter_tasks(
+        self,
+        tasks: list[CareTask],
+        *,
+        only_incomplete: bool = True,
+        category: Optional[Category] = None,
+        time_of_day: Optional[TimeOfDay] = None,
+    ) -> list[CareTask]:
+        """Filter tasks by completion status, category, and preferred time."""
+        result = tasks
+        if only_incomplete:
+            result = [t for t in result if not t.is_complete]
+        if category is not None:
+            result = [t for t in result if t.category == category]
+        if time_of_day is not None and time_of_day != TimeOfDay.ANY:
+            result = [
+                t for t in result
+                if t.preferred_time in (time_of_day, TimeOfDay.ANY)
+            ]
+        return result
 
     def fit_to_budget(
         self,
         tasks: list[CareTask],
         available_minutes: int,
     ) -> list[CareTask]:
-        """Greedily select tasks that fit within the available time budget."""
+        """Select tasks fitting the budget, largest-first per priority tier."""
+        # Prefer longer tasks within a tier to minimise wasted slack
+        sorted_tasks = sorted(
+            tasks,
+            key=lambda t: (
+                self._PRIORITY_ORDER[t.priority],
+                -t.duration_minutes,
+            ),
+        )
         result = []
         remaining = available_minutes
-        for task in tasks:
+        for task in sorted_tasks:
             if task.duration_minutes <= remaining:
                 result.append(task)
                 remaining -= task.duration_minutes
         return result
+
+    def detect_conflicts(
+        self, scheduled_tasks: list[ScheduledTask]
+    ) -> list[tuple[ScheduledTask, ScheduledTask]]:
+        """Return all pairs of ScheduledTasks whose time windows overlap."""
+        conflicts = []
+        for i, a in enumerate(scheduled_tasks):
+            for b in scheduled_tasks[i + 1:]:
+                if a.overlaps_with(b):
+                    conflicts.append((a, b))
+        return conflicts
 
     def assign_times(
         self,
