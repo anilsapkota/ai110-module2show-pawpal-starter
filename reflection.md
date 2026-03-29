@@ -7,6 +7,12 @@
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
 
+Add/edit a pet profile — Enter basic info about their pet and themselves (name, pet type, available time per day, preferences).
+
+Add and manage care tasks — Create tasks like walks, feeding, or medication with a duration and priority level, and edit or remove them as needed.
+
+Generate and view today's schedule — Trigger the scheduler to produce a prioritized daily care plan and see the reasoning behind it (e.g., why high-priority tasks were placed first).
+
 **b. Design changes**
 
 - Did your design change during implementation?
