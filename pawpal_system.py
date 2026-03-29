@@ -248,6 +248,44 @@ class Scheduler:
         TimeOfDay.ANY: 3,
     }
 
+    def sort_by_time(self, tasks: list[CareTask]) -> list[CareTask]:
+        """Return tasks sorted chronologically by preferred_time.
+
+        Uses a lambda key on _TIME_ORDER: MORNING first, then AFTERNOON,
+        EVENING, and ANY last — matching a top-to-bottom daily view.
+        """
+        return sorted(
+            tasks,
+            key=lambda t: self._TIME_ORDER[t.preferred_time],
+        )
+
+    def filter_by_pet_or_status(
+        self,
+        pets: list[Pet],
+        *,
+        pet_name: Optional[str] = None,
+        only_incomplete: bool = False,
+    ) -> list[tuple[str, CareTask]]:
+        """Return (pet_name, task) pairs filtered by pet name and/or status.
+
+        Args:
+            pets: All Pet objects to search across.
+            pet_name: When provided, restrict results to this pet only.
+            only_incomplete: When True, exclude already-completed tasks.
+
+        Returns:
+            A list of (pet_name, CareTask) tuples matching the criteria.
+        """
+        results = []
+        for pet in pets:
+            if pet_name and pet.name.lower() != pet_name.lower():
+                continue
+            for task in pet.get_tasks():
+                if only_incomplete and task.is_complete:
+                    continue
+                results.append((pet.name, task))
+        return results
+
     def sort_by_priority(self, tasks: list[CareTask]) -> list[CareTask]:
         """Return tasks sorted HIGH → MEDIUM → LOW, then by preferred time of day."""
         return sorted(
