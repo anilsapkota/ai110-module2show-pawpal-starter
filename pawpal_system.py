@@ -54,12 +54,15 @@ class CareTask:
         self.is_complete: bool = False
 
     def mark_complete(self) -> None:
+        """Mark this task as completed."""
         self.is_complete = True
 
     def is_high_priority(self) -> bool:
+        """Return True if the task's priority is HIGH."""
         return self.priority == Priority.HIGH
 
     def to_dict(self) -> dict:
+        """Serialize the task to a plain dictionary with enum values as strings."""
         return {
             "title": self.title,
             "duration_minutes": self.duration_minutes,
@@ -91,12 +94,15 @@ class Pet:
         self.tasks: list[CareTask] = []
 
     def add_task(self, task: CareTask) -> None:
+        """Append a CareTask to this pet's task list."""
         self.tasks.append(task)
 
     def remove_task(self, title: str) -> None:
+        """Remove the task matching the given title; silently does nothing if not found."""
         self.tasks = [t for t in self.tasks if t.title != title]
 
     def edit_task(self, title: str, updated_fields: dict) -> None:
+        """Update fields on the first task whose title matches; silently does nothing if not found."""
         for task in self.tasks:
             if task.title == title:
                 for field, value in updated_fields.items():
@@ -104,6 +110,7 @@ class Pet:
                 return
 
     def get_tasks(self) -> list[CareTask]:
+        """Return a shallow copy of this pet's task list."""
         return list(self.tasks)
 
 
@@ -124,12 +131,15 @@ class Owner:
         self.pets: list[Pet] = []
 
     def add_pet(self, pet: Pet) -> None:
+        """Add a Pet to this owner's roster."""
         self.pets.append(pet)
 
     def remove_pet(self, pet_name: str) -> None:
+        """Remove the pet matching the given name from the roster."""
         self.pets = [p for p in self.pets if p.name != pet_name]
 
     def get_time_budget(self) -> int:
+        """Return the owner's total available minutes per day."""
         return self.available_minutes_per_day
 
 
@@ -149,12 +159,14 @@ class ScheduledTask:
         self.end_time = end_time
 
     def display(self) -> str:
+        """Return a formatted HH:MM–HH:MM label with the task title and duration."""
         return (
             f"{self.start_time.strftime('%H:%M')}–{self.end_time.strftime('%H:%M')} "
             f"{self.task.title} ({self.task.duration_minutes} min)"
         )
 
     def overlaps_with(self, other: ScheduledTask) -> bool:
+        """Return True if this task's time window intersects with another's."""
         return self.start_time < other.end_time and other.start_time < self.end_time
 
 
@@ -171,13 +183,16 @@ class DailySchedule:
         self.explanation: str = ""
 
     def add_scheduled_task(self, scheduled_task: ScheduledTask) -> None:
+        """Append a ScheduledTask and accumulate its duration into total_minutes_used."""
         self.scheduled_tasks.append(scheduled_task)
         self.total_minutes_used += scheduled_task.task.duration_minutes
 
     def add_skipped_task(self, task: CareTask) -> None:
+        """Record a CareTask that could not be scheduled due to budget constraints."""
         self.skipped_tasks.append(task)
 
     def get_summary(self) -> str:
+        """Return a human-readable multi-line summary of the day's schedule."""
         lines = [f"Schedule for {self.date} — {self.total_minutes_used} min used"]
         for st in self.scheduled_tasks:
             lines.append(f"  {st.display()}")
@@ -200,6 +215,7 @@ class Scheduler:
         pet: Pet,
         day_start_time: time,
     ) -> DailySchedule:
+        """Run the full scheduling pipeline and return a populated DailySchedule."""
         schedule = DailySchedule(date.today())
 
         due = self.filter_due_tasks(pet.get_tasks())
@@ -219,10 +235,12 @@ class Scheduler:
         return schedule
 
     def sort_by_priority(self, tasks: list[CareTask]) -> list[CareTask]:
+        """Return tasks sorted HIGH → MEDIUM → LOW priority."""
         priority_order = {Priority.HIGH: 0, Priority.MEDIUM: 1, Priority.LOW: 2}
         return sorted(tasks, key=lambda t: priority_order[t.priority])
 
     def filter_due_tasks(self, tasks: list[CareTask]) -> list[CareTask]:
+        """Return only tasks marked as daily (is_daily=True)."""
         return [t for t in tasks if t.is_daily]
 
     def fit_to_budget(
@@ -230,6 +248,7 @@ class Scheduler:
         tasks: list[CareTask],
         available_minutes: int,
     ) -> list[CareTask]:
+        """Greedily select tasks that fit within the available time budget."""
         result = []
         remaining = available_minutes
         for task in tasks:
@@ -243,6 +262,7 @@ class Scheduler:
         tasks: list[CareTask],
         start_time: time,
     ) -> list[ScheduledTask]:
+        """Assign sequential start/end times to each task beginning at start_time."""
         scheduled = []
         current = datetime.combine(date.today(), start_time)
         for task in tasks:
@@ -252,6 +272,7 @@ class Scheduler:
         return scheduled
 
     def generate_explanation(self, schedule: DailySchedule) -> str:
+        """Build a plain-English summary of what was scheduled and what was skipped."""
         n_scheduled = len(schedule.scheduled_tasks)
         n_skipped = len(schedule.skipped_tasks)
         parts = [
