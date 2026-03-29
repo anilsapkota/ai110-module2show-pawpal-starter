@@ -3,11 +3,13 @@ from datetime import time
 from pawpal_system import (
     CareTask,
     Category,
+    DailySchedule,
     Frequency,
     Owner,
     Pet,
     Priority,
     Scheduler,
+    ScheduledTask,
     TimeOfDay,
 )
 
@@ -200,5 +202,68 @@ for t in milo.get_tasks():
         f"    {status} {t.title} "
         f"(due {t.due_date}, {t.frequency.value})"
     )
+
+# ---------------------------------------------------------------------------
+# Demo 5 — conflict_warnings(): overlapping tasks within and across pets
+# ---------------------------------------------------------------------------
+
+print("\n" + "=" * 50)
+print("  DEMO 5: conflict_warnings()")
+print("=" * 50)
+
+# Build two DailySchedules with hand-crafted overlapping ScheduledTask
+# objects so the conflict detector has something to find.
+#
+# Scenario A — same pet, two tasks at 08:00 (within Milo's schedule):
+#   "Morning Walk"  08:00-08:30
+#   "Breakfast"     08:00-08:10  <-- starts at the same time -> CONFLICT
+#
+# Scenario B — cross-pet:
+#   Milo "Afternoon Walk"  14:00-14:25
+#   Luna "Laser Pointer"   14:10-14:25  <-- overlaps by 15 min -> CONFLICT
+
+walk_task = CareTask(
+    "Morning Walk", 30, Priority.HIGH, Category.EXERCISE,
+    preferred_time=TimeOfDay.MORNING,
+)
+breakfast_task = CareTask(
+    "Breakfast", 10, Priority.HIGH, Category.FEEDING,
+    preferred_time=TimeOfDay.MORNING,
+)
+afternoon_walk = CareTask(
+    "Afternoon Walk", 25, Priority.MEDIUM, Category.EXERCISE,
+    preferred_time=TimeOfDay.AFTERNOON,
+)
+laser_task = CareTask(
+    "Laser Pointer Play", 15, Priority.MEDIUM, Category.ENRICHMENT,
+    preferred_time=TimeOfDay.AFTERNOON,
+)
+
+from datetime import date  # already imported in pawpal_system; needed here
+milo_cs = DailySchedule(date.today())
+milo_cs.scheduled_tasks.append(
+    ScheduledTask(walk_task, time(8, 0), time(8, 30))
+)
+milo_cs.scheduled_tasks.append(
+    ScheduledTask(breakfast_task, time(8, 0), time(8, 10))  # same start -> A
+)
+milo_cs.scheduled_tasks.append(
+    ScheduledTask(afternoon_walk, time(14, 0), time(14, 25))
+)
+
+luna_cs = DailySchedule(date.today())
+luna_cs.scheduled_tasks.append(
+    ScheduledTask(laser_task, time(14, 10), time(14, 25))   # mid-overlap -> B
+)
+
+named = [("Milo", milo_cs), ("Luna", luna_cs)]
+warnings = scheduler.conflict_warnings(named)
+
+if warnings:
+    print(f"\n  {len(warnings)} conflict(s) detected:\n")
+    for w in warnings:
+        print(f"    WARNING: {w}")
+else:
+    print("\n  No conflicts detected.")
 
 print("\n" + "=" * 50)

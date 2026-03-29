@@ -229,6 +229,7 @@ class DailySchedule:
         self.skipped_tasks: list[CareTask] = []
         self.total_minutes_used: int = 0
         self.explanation: str = ""
+        self.warnings: list[str] = []
 
     def add_scheduled_task(self, scheduled_task: ScheduledTask) -> None:
         """Append a ScheduledTask and accumulate its duration into total_minutes_used."""
@@ -241,7 +242,10 @@ class DailySchedule:
 
     def get_summary(self) -> str:
         """Return a human-readable multi-line summary of the day's schedule."""
-        lines = [f"Schedule for {self.date} — {self.total_minutes_used} min used"]
+        lines = [
+            f"Schedule for {self.date} "
+            f"-- {self.total_minutes_used} min used"
+        ]
         for st in self.scheduled_tasks:
             lines.append(f"  {st.display()}")
         if self.skipped_tasks:
@@ -249,6 +253,8 @@ class DailySchedule:
             lines.append(f"  Skipped: {skipped}")
         if self.explanation:
             lines.append(f"  Note: {self.explanation}")
+        for w in self.warnings:
+            lines.append(f"  WARNING: {w}")
         return "\n".join(lines)
 
 
@@ -280,6 +286,7 @@ class Scheduler:
                 schedule.add_skipped_task(task)
 
         schedule.explanation = self.generate_explanation(schedule)
+        schedule.warnings = self.conflict_warnings([(pet.name, schedule)])
         return schedule
 
     # Lookup tables used by sort and fit methods
@@ -429,6 +436,50 @@ class Scheduler:
                 if a.overlaps_with(b):
                     conflicts.append((a, b))
         return conflicts
+
+    def conflict_warnings(
+        self,
+        named_schedules: list[tuple[str, DailySchedule]],
+    ) -> list[str]:
+        """Return human-readable warnings for any overlapping tasks.
+
+        Lightweight strategy: never raises — returns an empty list when
+        there are no conflicts so callers can safely ignore it.
+
+        Checks both within a single pet's schedule and across different
+        pets (e.g. owner walks Milo and feeds Luna at the same time).
+
+        Args:
+            named_schedules: list of (label, DailySchedule) where label
+                is typically the pet's name.
+
+        Returns:
+            A list of warning strings, one per overlapping pair.
+        """
+        # Flatten all scheduled tasks into (label, ScheduledTask) pairs
+        labelled: list[tuple[str, ScheduledTask]] = []
+        for label, schedule in named_schedules:
+            for st in schedule.scheduled_tasks:
+                labelled.append((label, st))
+
+        warnings: list[str] = []
+        for i, (label_a, a) in enumerate(labelled):
+            for label_b, b in labelled[i + 1:]:
+                if a.overlaps_with(b):
+                    a_window = (
+                        f"{a.start_time.strftime('%H:%M')}"
+                        f"-{a.end_time.strftime('%H:%M')}"
+                    )
+                    b_window = (
+                        f"{b.start_time.strftime('%H:%M')}"
+                        f"-{b.end_time.strftime('%H:%M')}"
+                    )
+                    warnings.append(
+                        f"'{a.task.title}' ({label_a}, {a_window})"
+                        f" overlaps with"
+                        f" '{b.task.title}' ({label_b}, {b_window})"
+                    )
+        return warnings
 
     def assign_times(
         self,
