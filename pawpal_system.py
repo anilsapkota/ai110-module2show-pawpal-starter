@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import date, time
+from datetime import date, datetime, time, timedelta
 from enum import Enum
 from typing import Optional
 
@@ -53,10 +53,18 @@ class CareTask:
         self.is_daily = is_daily
 
     def is_high_priority(self) -> bool:
-        pass
+        return self.priority == Priority.HIGH
 
     def to_dict(self) -> dict:
-        pass
+        return {
+            "title": self.title,
+            "duration_minutes": self.duration_minutes,
+            "priority": self.priority.value,
+            "category": self.category.value,
+            "preferred_time": self.preferred_time.value,
+            "notes": self.notes,
+            "is_daily": self.is_daily,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -79,16 +87,20 @@ class Pet:
         self.tasks: list[CareTask] = []
 
     def add_task(self, task: CareTask) -> None:
-        pass
+        self.tasks.append(task)
 
     def remove_task(self, title: str) -> None:
-        pass
+        self.tasks = [t for t in self.tasks if t.title != title]
 
     def edit_task(self, title: str, updated_fields: dict) -> None:
-        pass
+        for task in self.tasks:
+            if task.title == title:
+                for field, value in updated_fields.items():
+                    setattr(task, field, value)
+                return
 
     def get_tasks(self) -> list[CareTask]:
-        pass
+        return list(self.tasks)
 
 
 # ---------------------------------------------------------------------------
@@ -108,13 +120,13 @@ class Owner:
         self.pets: list[Pet] = []
 
     def add_pet(self, pet: Pet) -> None:
-        pass
+        self.pets.append(pet)
 
     def remove_pet(self, pet_name: str) -> None:
-        pass
+        self.pets = [p for p in self.pets if p.name != pet_name]
 
     def get_time_budget(self) -> int:
-        pass
+        return self.available_minutes_per_day
 
 
 # ---------------------------------------------------------------------------
@@ -133,10 +145,13 @@ class ScheduledTask:
         self.end_time = end_time
 
     def display(self) -> str:
-        pass
+        return (
+            f"{self.start_time.strftime('%H:%M')}–{self.end_time.strftime('%H:%M')} "
+            f"{self.task.title} ({self.task.duration_minutes} min)"
+        )
 
     def overlaps_with(self, other: ScheduledTask) -> bool:
-        pass
+        return self.start_time < other.end_time and other.start_time < self.end_time
 
 
 # ---------------------------------------------------------------------------
@@ -152,13 +167,22 @@ class DailySchedule:
         self.explanation: str = ""
 
     def add_scheduled_task(self, scheduled_task: ScheduledTask) -> None:
-        pass
+        self.scheduled_tasks.append(scheduled_task)
+        self.total_minutes_used += scheduled_task.task.duration_minutes
 
     def add_skipped_task(self, task: CareTask) -> None:
-        pass
+        self.skipped_tasks.append(task)
 
     def get_summary(self) -> str:
-        pass
+        lines = [f"Schedule for {self.date} — {self.total_minutes_used} min used"]
+        for st in self.scheduled_tasks:
+            lines.append(f"  {st.display()}")
+        if self.skipped_tasks:
+            skipped = ", ".join(t.title for t in self.skipped_tasks)
+            lines.append(f"  Skipped: {skipped}")
+        if self.explanation:
+            lines.append(f"  Note: {self.explanation}")
+        return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -172,27 +196,67 @@ class Scheduler:
         pet: Pet,
         day_start_time: time,
     ) -> DailySchedule:
-        pass
+        schedule = DailySchedule(date.today())
+
+        due = self.filter_due_tasks(pet.get_tasks())
+        sorted_tasks = self.sort_by_priority(due)
+        fitting = self.fit_to_budget(sorted_tasks, owner.get_time_budget())
+
+        scheduled = self.assign_times(fitting, day_start_time)
+        for st in scheduled:
+            schedule.add_scheduled_task(st)
+
+        scheduled_titles = {st.task.title for st in scheduled}
+        for task in due:
+            if task.title not in scheduled_titles:
+                schedule.add_skipped_task(task)
+
+        schedule.explanation = self.generate_explanation(schedule)
+        return schedule
 
     def sort_by_priority(self, tasks: list[CareTask]) -> list[CareTask]:
-        pass
+        priority_order = {Priority.HIGH: 0, Priority.MEDIUM: 1, Priority.LOW: 2}
+        return sorted(tasks, key=lambda t: priority_order[t.priority])
 
     def filter_due_tasks(self, tasks: list[CareTask]) -> list[CareTask]:
-        pass
+        return [t for t in tasks if t.is_daily]
 
     def fit_to_budget(
         self,
         tasks: list[CareTask],
         available_minutes: int,
     ) -> list[CareTask]:
-        pass
+        result = []
+        remaining = available_minutes
+        for task in tasks:
+            if task.duration_minutes <= remaining:
+                result.append(task)
+                remaining -= task.duration_minutes
+        return result
 
     def assign_times(
         self,
         tasks: list[CareTask],
         start_time: time,
     ) -> list[ScheduledTask]:
-        pass
+        scheduled = []
+        current = datetime.combine(date.today(), start_time)
+        for task in tasks:
+            end = current + timedelta(minutes=task.duration_minutes)
+            scheduled.append(ScheduledTask(task, current.time(), end.time()))
+            current = end
+        return scheduled
 
     def generate_explanation(self, schedule: DailySchedule) -> str:
-        pass
+        n_scheduled = len(schedule.scheduled_tasks)
+        n_skipped = len(schedule.skipped_tasks)
+        parts = [
+            f"{n_scheduled} task(s) scheduled "
+            f"({schedule.total_minutes_used} min)."
+        ]
+        if n_skipped:
+            skipped = ", ".join(t.title for t in schedule.skipped_tasks)
+            parts.append(
+                f"{n_skipped} task(s) skipped due to time budget: {skipped}."
+            )
+        return " ".join(parts)
