@@ -4,112 +4,24 @@
 
 **a. Initial design**
 
-- Briefly describe your initial UML design.
-- What classes did you include, and what responsibilities did you assign to each?
+My initial UML had six classes: `Owner`, `Pet`, `CareTask`,
+`ScheduledTask`, `DailySchedule`, and `Scheduler`, plus three enums
+(`Priority`, `Category`, `TimeOfDay`).
 
-Add/edit a pet profile — Enter basic info about their pet and themselves (name, pet type, available time per day, preferences).
+The key responsibility assignments were:
 
-Add and manage care tasks — Create tasks like walks, feeding, or medication with a duration and priority level, and edit or remove them as needed.
-
-Generate and view today's schedule — Trigger the scheduler to produce a prioritized daily care plan and see the reasoning behind it (e.g., why high-priority tasks were placed first).
-
-
-
-
-1. Owner
-Attributes:
-
-name: str
-available_minutes_per_day: int — total daily time budget
-preferences: dict — e.g., preferred start time, task type preferences
-pets: list[Pet] — supports multiple pets
-Methods:
-
-add_pet(pet) — adds a pet to the owner's list
-remove_pet(pet_name) — removes a pet by name
-get_time_budget() — returns available_minutes_per_day
-2. Pet
-Attributes:
-
-name: str
-species: str — dog, cat, other
-age: int (optional)
-notes: str — special needs or health info
-tasks: list[CareTask] — tasks belong to the pet, not the owner
-Methods:
-
-add_task(task) — adds a care task
-remove_task(task_title) — removes a task by title
-edit_task(task_title, updated_fields) — updates an existing task
-get_tasks() — returns the full task list
-3. CareTask
-Attributes:
-
-title: str — e.g., "Morning walk"
-duration_minutes: int
-priority: Priority — enum, not raw string
-category: Category — enum (EXERCISE, FEEDING, etc.)
-preferred_time: TimeOfDay — enum, used by the scheduler for ordering
-Methods:
-
-is_high_priority() — returns True if priority == Priority.HIGH
-to_dict() — serializes for display or storage
-4. ScheduledTask
-A CareTask paired with its assigned time slot in the day.
-
-Attributes:
-
-task: CareTask
-start_time: datetime.time — not a string; enables arithmetic
-end_time: datetime.time — computed from start_time + duration_minutes
-Methods:
-
-display() — returns a formatted string, e.g., "8:00–8:20 AM | Morning walk (high)"
-overlaps_with(other: ScheduledTask) — checks for time conflicts
-5. DailySchedule
-A pure data object — holds results only, contains no scheduling or AI logic.
-
-Attributes:
-
-date: datetime.date
-scheduled_tasks: list[ScheduledTask] — ordered list of placed tasks
-skipped_tasks: list[CareTask] — tasks that didn't fit the time budget
-total_minutes_used: int
-explanation: str — plain-text reasoning, written by Scheduler, stored here
-Methods:
-
-add_scheduled_task(scheduled_task) — appends to the schedule
-get_summary() — returns a readable overview of the day's plan
-6. Scheduler
-A stateless service — takes inputs as parameters, returns a DailySchedule. Owns all scheduling and explanation logic.
-
-Attributes: none (stateless)
-
-Methods:
-
-generate_schedule(owner, pet, tasks, day_start_time) → DailySchedule — main entry point
-sort_by_priority(tasks) — orders tasks HIGH → MEDIUM → LOW, then by preferred_time
-fit_to_budget(tasks, available_minutes) — selects tasks that fit within the time budget, populates skipped_tasks
-assign_times(tasks, start_time) — converts ordered tasks into ScheduledTask objects with real clock times
-generate_explanation(schedule) → str — produces natural language reasoning (can call Claude API here); result is stored in DailySchedule.explanation
-Relationship Map
-
-Owner ──── has ───► list[Pet]
-Pet   ──── has ───► list[CareTask]
-
-Scheduler.generate_schedule(owner, pet, tasks, day_start_time)
-    └──► returns DailySchedule
-              ├── list[ScheduledTask]  (each wraps a CareTask + datetime.time)
-              ├── list[CareTask]       (skipped)
-              └── explanation: str
-Key design principles applied:
-
-Tasks live on Pet, not Owner
-DailySchedule is a data object only — no logic
-Scheduler is stateless — no stored owner/pet/task fields
-All scheduling and explanation responsibility lives in Scheduler
-preferred_time is actually used in sort_by_priority()
-All times are datetime.time, not strings
+- **Owner** — holds the daily time budget and a list of pets.
+- **Pet** — owns its own task list; tasks live on the pet, not the
+  owner, so multi-pet households work naturally.
+- **CareTask** — pure data describing what needs to be done, with
+  enum-typed fields to prevent invalid values.
+- **ScheduledTask** — pairs a `CareTask` with a concrete clock time;
+  uses `datetime.time` (not strings) so arithmetic is reliable.
+- **DailySchedule** — a data-only result object; holds scheduled
+  tasks, skipped tasks, and the explanation. Contains no logic.
+- **Scheduler** — stateless service; all scheduling logic lives here
+  and nowhere else. Takes inputs as parameters, returns a
+  `DailySchedule`.
 
 
 Mermaid.js code (updated to match final implementation):
@@ -238,10 +150,26 @@ classDiagram
 
 **b. Design changes**
 
-- Did your design change during implementation?
-- If yes, describe at least one change and why you made it.
+Yes, the design evolved significantly during implementation. The most
+important structural change was moving from a single-pet model to a
+multi-pet household model. In my first draft, `Owner` held one `Pet`
+directly. When I realized that most real households have more than one
+animal, I changed it to `list[Pet]` and added `add_pet()` /
+`remove_pet()` methods.
 
-yes i did several times. I asked gpt to respond to claude's response and fed that again to chatgpt to improve it as well. One change was how the owner could have several pets instead of just one pet
+A second major change was adding the `Frequency` enum and `due_date`
+field to `CareTask`. The original design only had an `is_daily`
+boolean — which can't represent weekly medications, weekday-only
+walks, or one-off tasks. Upgrading to `Frequency` (NONE / DAILY /
+WEEKLY) and `recurrence_days: list[int]` made recurring tasks
+genuinely useful.
+
+A third change was adding `warnings: list[str]` to `DailySchedule`.
+Conflict detection was originally a standalone method that returned
+raw pairs of `ScheduledTask` objects. Surfacing the warnings directly
+on the schedule object — so `get_summary()` prints them automatically
+— made the output much more useful without changing how callers use
+the schedule.
 
 ---
 
@@ -249,43 +177,132 @@ yes i did several times. I asked gpt to respond to claude's response and fed tha
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+The scheduler considers three constraints in order:
 
-sort_by_time() + sort_by_priority() — two-key lambda sorts
-filter_due_tasks(), filter_tasks(), filter_by_pet_or_status() — composable filters
-fit_to_budget() — greedy packing with within-tier duration sort
-mark_task_complete() — auto-generates next recurring occurrence
-conflict_warnings() — warn-not-crash overlap detection across pets
+1. **Recurrence / due date** — `filter_due_tasks()` removes tasks
+   that aren't scheduled for today before anything else runs. There
+   is no point sorting or packing a task that isn't due.
+2. **Priority and preferred time** — `sort_by_priority()` ranks
+   tasks HIGH → MEDIUM → LOW, then breaks ties by time of day
+   (MORNING before AFTERNOON before EVENING). This ensures the most
+   important, time-sensitive care happens first.
+3. **Time budget** — `fit_to_budget()` greedily packs tasks until
+   the owner's daily minutes are exhausted. Tasks that don't fit are
+   recorded in `skipped_tasks` so the owner knows what was left out.
 
+Priority was chosen as the primary constraint because a pet owner
+running short on time should always do the medication before the
+grooming, regardless of duration. Time budget is secondary — it is
+a hard constraint but only kicks in after priority ordering has
+already determined the sequence.
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+The main tradeoff is between **scheduling optimality and simplicity**.
+`fit_to_budget()` uses a greedy first-fit approach (largest tasks
+first within each priority tier), which runs in O(n log n) time but
+can occasionally miss combinations that a true knapsack solver would
+find. For example, with a 60-minute budget and tasks of 35, 30, and
+25 minutes, the greedy approach picks 35 + 25 = 60 minutes, which
+actually works — but in other combinations it may leave slack that a
+smarter algorithm would fill.
 
-The "HH:MM-HH:MM" string was duplicated inside conflict_warnings(). Extracting it as a small helper on ScheduledTask follows the rule: data knows how to describe itself. display() now calls it too, so the format lives in exactly one place.
-
-Flatten rewritten as a list comprehension 
-
-Before	After
-4 lines, for + for + .append()	4 lines, nested comprehension
-Mutates labelled mid-build	Builds labelled in one expression
-A list comprehension over a nested loop is both idiomatic Python and slightly faster — no repeated attribute lookups for .append, and the interpreter can pre-allocate the result list.
+This tradeoff is reasonable for a pet care app because the number of
+daily tasks is almost always under 20, the difference between greedy
+and optimal is rarely more than one task, and the simplicity of the
+greedy algorithm makes it easy to explain to the owner ("I ran out of
+time") and easy to test. A true knapsack solver would be harder to
+debug and overkill for this domain.
 
 ---
 
 ## 3. AI Collaboration
 
-**a. How you used AI**
+**a. How you used AI — VS Code Copilot**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+I used VS Code Copilot across every phase of the project, but in
+different modes depending on what I needed:
 
-**b. Judgment and verification**
+- **Inline Chat on specific methods** was the most effective feature.
+  Highlighting `sort_by_priority()` and asking "how do I add a
+  second sort key for time of day?" gave me a focused, contextual
+  answer without needing to describe the whole codebase. It kept
+  suggestions scoped to the method I was working on rather than
+  proposing a rewrite of the entire class.
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+- **Agent Mode for multi-file changes** worked well for the
+  recurring task feature. When I asked it to "add Frequency and
+  due_date to CareTask and wire mark_task_complete into Scheduler,"
+  it correctly identified that both `pawpal_system.py` and `main.py`
+  needed edits and made them consistently. I would not have wanted
+  to hand-coordinate those two files manually.
+
+- **`#codebase` context in chat** was valuable for the Features list
+  in the README. Asking "describe the algorithms in this codebase in
+  plain English for a pet owner" produced accurate descriptions
+  because Copilot had visibility into the actual method names and
+  docstrings rather than working from my verbal description.
+
+The most useful prompt pattern was being specific about the
+*constraint*, not just the feature: "return warnings as strings,
+never raise an exception" gave a better `conflict_warnings()`
+implementation than "add conflict detection."
+
+**b. Judgment and verification — one suggestion I modified**
+
+When I asked Copilot to implement `conflict_warnings()`, its first
+suggestion crashed the program with a `ValueError` when the
+`named_schedules` list was empty, because it tried to unpack the
+first element before checking the length. That violated the core
+design goal of "lightweight, never-crashing."
+
+I rejected that version and specified the constraint explicitly:
+"return an empty list when there are no conflicts or no scheduled
+tasks — never raise." The revised version used a nested list
+comprehension to flatten tasks safely, which also turned out to be
+more readable. I then verified by running `main.py` with an empty
+schedule and confirming zero warnings were returned.
+
+The lesson was that AI tools respond well to explicit negative
+constraints ("never raise") and not just positive ones ("detect
+conflicts"). Specifying what the code must *not* do is as important
+as specifying what it should do.
+
+**c. How separate chat sessions helped**
+
+Keeping each phase in its own chat session — design, core logic,
+recurring tasks, conflict detection, refactoring — prevented the
+context window from becoming a mix of old decisions and new ones.
+Each session started with a clear, narrow goal, which meant Copilot's
+suggestions stayed relevant to the current task rather than
+accidentally reverting earlier decisions or over-engineering based on
+context from a phase that was already complete.
+
+It also made it easier for me to evaluate suggestions: if a chat
+session was only about conflict detection, any suggestion that touched
+unrelated classes was immediately suspicious and worth questioning.
+
+**d. Being the "lead architect"**
+
+The most important thing I learned is that AI tools are excellent
+*implementers* but require a human to act as the *architect*. Copilot
+could write a correct `sort_by_priority()` method in seconds, but it
+had no opinion about whether tasks should live on `Pet` or on `Owner`,
+or whether `DailySchedule` should be a pure data object with no logic.
+Those decisions determined the entire shape of the system, and getting
+them wrong would have made every subsequent feature harder to add.
+
+My job was to make those structural decisions first — usually by
+drafting the UML and asking "does this design hold up if I add
+recurring tasks?" — and then let AI handle the implementation. When
+I skipped that step and asked Copilot to "just add recurring tasks,"
+the suggestions were syntactically correct but architecturally
+inconsistent (e.g., putting recurrence logic inside `Pet` instead of
+keeping it on `CareTask` where it belongs).
+
+The practical rule I settled on: **design before you prompt**. A
+ten-minute UML sketch saved hours of AI-generated code that would
+have had to be restructured.
 
 ---
 
@@ -335,8 +352,22 @@ filter_by_pet_or_status case-insensitive	"milo" and "Milo" match the same pet
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+I am confident (4/5) that the core pipeline is correct. All 16 tests
+pass, including the tricky boundary condition where back-to-back tasks
+sharing only a boundary point are correctly *not* flagged as a
+conflict.
+
+The areas I would test next if I had more time:
+
+1. **Midnight wrap** — a task starting at 23:50 for 20 minutes; the
+   `datetime.time` type does not handle day rollover automatically
+   and this could produce a silent bug.
+2. **Cross-pet conflicts at scale** — the current demo tests two
+   pets; I would test five or more to confirm the O(n²) pairwise
+   check stays fast enough to not visibly lag the Streamlit UI.
+3. **`fit_to_budget` near-miss cases** — tasks that sum to exactly
+   one minute over budget, to verify the greedy cutoff behavior is
+   consistent with what `get_summary()` reports.
 
 ---
 
@@ -344,12 +375,43 @@ filter_by_pet_or_status case-insensitive	"milo" and "Milo" match the same pet
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+The part I am most satisfied with is the conflict detection system.
+`conflict_warnings()` works across multiple pets, produces readable
+output, never crashes on edge cases like empty schedules, and the
+underlying `overlaps_with()` logic correctly handles the tricky
+boundary condition (back-to-back tasks are not a conflict). The
+design decision to attach warnings directly to `DailySchedule` —
+so they surface automatically in `get_summary()` — meant the UI
+didn't need any changes to benefit from the feature.
 
-**b. What you would improve**
+The `Scheduler` being stateless also paid off continuously. Every
+new method was easy to test in isolation because there was no hidden
+state to set up or tear down.
 
-- If you had another iteration, what would you improve or redesign?
+**b. What I would improve**
+
+I would redesign `fit_to_budget()` to use a proper bounded knapsack
+algorithm for cases where the owner has a tight time budget and many
+tasks of similar priority. The greedy approach occasionally leaves
+more slack than necessary.
+
+I would also add persistence — right now the schedule is regenerated
+fresh each time and completed tasks are lost when the Streamlit
+session ends. A lightweight SQLite backend (or even a JSON file) would
+let the app track completion history across days, which is where the
+recurring task logic would really shine.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+The most important thing I learned is that **architectural decisions
+cannot be delegated to AI**. Tools like Copilot can write correct
+code quickly, but "correct" and "well-designed" are different things.
+Whether tasks belong to `Pet` or `Owner`, whether `DailySchedule`
+holds logic or just data, whether conflict detection should raise or
+warn — these choices determine the long-term health of the codebase
+and no AI tool made them for me. I had to make them deliberately,
+document them in the UML, and then use AI to implement within those
+constraints. When I skipped that step, the AI suggestions were
+locally correct but globally inconsistent. The UML draft was not
+busywork — it was the specification that kept every AI interaction
+on track.
