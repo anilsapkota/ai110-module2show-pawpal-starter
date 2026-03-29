@@ -29,6 +29,12 @@ class TimeOfDay(Enum):
     ANY = "any"
 
 
+class Frequency(Enum):
+    NONE = "none"      # one-off task, never recurs
+    DAILY = "daily"    # repeats every day (timedelta of 1 day)
+    WEEKLY = "weekly"  # repeats every 7 days (timedelta of 7 days)
+
+
 # ---------------------------------------------------------------------------
 # CareTask
 # ---------------------------------------------------------------------------
@@ -44,6 +50,8 @@ class CareTask:
         notes: str = "",
         is_daily: bool = True,
         recurrence_days: Optional[list[int]] = None,
+        frequency: Frequency = Frequency.NONE,
+        due_date: Optional[date] = None,
     ) -> None:
         self.title = title
         self.duration_minutes = duration_minutes
@@ -56,11 +64,44 @@ class CareTask:
         self.recurrence_days: list[int] = (
             recurrence_days if recurrence_days is not None else list(range(7))
         )
+        self.frequency = frequency
+        # due_date defaults to today so every new task is immediately due.
+        self.due_date: date = (
+            due_date if due_date is not None else date.today()
+        )
         self.is_complete: bool = False
 
     def mark_complete(self) -> None:
         """Mark this task as completed."""
         self.is_complete = True
+
+    def next_occurrence(self) -> Optional[CareTask]:
+        """Return a new CareTask due on the next recurrence date, or None.
+
+        Uses Python's timedelta to advance due_date by the correct interval:
+          - Frequency.DAILY  -> due_date + timedelta(days=1)
+          - Frequency.WEEKLY -> due_date + timedelta(weeks=1)
+          - Frequency.NONE   -> None (one-off task, never repeats)
+        """
+        if self.frequency == Frequency.DAILY:
+            next_due = self.due_date + timedelta(days=1)
+        elif self.frequency == Frequency.WEEKLY:
+            next_due = self.due_date + timedelta(weeks=1)
+        else:
+            return None
+
+        return CareTask(
+            title=self.title,
+            duration_minutes=self.duration_minutes,
+            priority=self.priority,
+            category=self.category,
+            preferred_time=self.preferred_time,
+            notes=self.notes,
+            is_daily=self.is_daily,
+            recurrence_days=list(self.recurrence_days),
+            frequency=self.frequency,
+            due_date=next_due,
+        )
 
     def is_high_priority(self) -> bool:
         """Return True if the task's priority is HIGH."""
@@ -76,6 +117,8 @@ class CareTask:
             "preferred_time": self.preferred_time.value,
             "notes": self.notes,
             "is_daily": self.is_daily,
+            "frequency": self.frequency.value,
+            "due_date": self.due_date.isoformat(),
         }
 
 
@@ -247,6 +290,30 @@ class Scheduler:
         TimeOfDay.EVENING: 2,
         TimeOfDay.ANY: 3,
     }
+
+    def mark_task_complete(
+        self,
+        pet: Pet,
+        task_title: str,
+    ) -> Optional[CareTask]:
+        """Mark a pet's task complete and auto-schedule its next occurrence.
+
+        Finds the task by title on pet, calls mark_complete(), then calls
+        next_occurrence() to get the follow-up CareTask.  If one exists
+        (i.e. frequency is DAILY or WEEKLY), it is added to the pet so it
+        appears automatically in tomorrow's or next week's schedule.
+
+        Returns the newly created next-occurrence CareTask, or None if the
+        task is one-off (Frequency.NONE) or was not found.
+        """
+        for task in pet.tasks:
+            if task.title == task_title:
+                task.mark_complete()
+                next_task = task.next_occurrence()
+                if next_task is not None:
+                    pet.add_task(next_task)
+                return next_task
+        return None
 
     def sort_by_time(self, tasks: list[CareTask]) -> list[CareTask]:
         """Return tasks sorted chronologically by preferred_time.

@@ -3,6 +3,7 @@ from datetime import time
 from pawpal_system import (
     CareTask,
     Category,
+    Frequency,
     Owner,
     Pet,
     Priority,
@@ -41,6 +42,7 @@ milo.add_task(CareTask(
     category=Category.MEDICATION,
     preferred_time=TimeOfDay.MORNING,
     notes="Give with food",
+    frequency=Frequency.WEEKLY,   # vet-prescribed, once a week
 ))
 milo.add_task(CareTask(
     title="Breakfast",
@@ -48,6 +50,7 @@ milo.add_task(CareTask(
     priority=Priority.HIGH,
     category=Category.FEEDING,
     preferred_time=TimeOfDay.MORNING,
+    frequency=Frequency.DAILY,    # every morning
 ))
 milo.add_task(CareTask(
     title="Morning Walk",
@@ -55,6 +58,7 @@ milo.add_task(CareTask(
     priority=Priority.HIGH,
     category=Category.EXERCISE,
     preferred_time=TimeOfDay.MORNING,
+    frequency=Frequency.DAILY,    # every morning
 ))
 
 # --- Pet 2: Luna the cat ---
@@ -158,5 +162,43 @@ for pet in owner.pets:
     schedule = scheduler.generate_schedule(owner, pet, day_start)
     print(f"\n--- {pet.name} ({pet.species}) ---")
     print(schedule.get_summary())
+
+# ---------------------------------------------------------------------------
+# Demo 4 — mark_task_complete(): auto-creates next occurrence via timedelta
+# ---------------------------------------------------------------------------
+
+print("\n" + "=" * 50)
+print("  DEMO 4: mark_task_complete() recurring tasks")
+print("=" * 50)
+
+demo_cases = [
+    (milo, "Morning Walk"),      # DAILY  -> due tomorrow
+    (milo, "Heartworm Pill"),    # WEEKLY -> due in 7 days
+    (milo, "Brush Coat"),        # NONE   -> one-off, no next occurrence
+]
+
+for pet, title in demo_cases:
+    next_task = scheduler.mark_task_complete(pet, title)
+    # Find the now-completed original to show its due_date
+    original = next(t for t in pet.tasks if t.title == title)
+    print(f"\n  Completed: '{title}' (due {original.due_date})")
+    if next_task:
+        print(
+            f"  Next occurrence ({next_task.frequency.value}): "
+            f"'{next_task.title}' due {next_task.due_date}"
+        )
+    else:
+        print("  One-off task -- no next occurrence created.")
+
+print()
+
+# Show Milo's updated task list so new occurrences are visible
+print("  Milo's tasks after completions:")
+for t in milo.get_tasks():
+    status = "[DONE]" if t.is_complete else "[ ]  "
+    print(
+        f"    {status} {t.title} "
+        f"(due {t.due_date}, {t.frequency.value})"
+    )
 
 print("\n" + "=" * 50)
