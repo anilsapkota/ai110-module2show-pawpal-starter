@@ -51,6 +51,10 @@ class CareTask:
         self.preferred_time = preferred_time
         self.notes = notes
         self.is_daily = is_daily
+        self.is_complete: bool = False
+
+    def mark_complete(self) -> None:
+        self.is_complete = True
 
     def is_high_priority(self) -> bool:
         return self.priority == Priority.HIGH
