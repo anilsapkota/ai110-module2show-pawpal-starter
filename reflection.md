@@ -112,7 +112,8 @@ preferred_time is actually used in sort_by_priority()
 All times are datetime.time, not strings
 
 
-Mermaid.js code :
+Mermaid.js code (updated to match final implementation):
+```mermaid
 classDiagram
     class Owner {
         +str name
@@ -144,6 +145,12 @@ classDiagram
         +TimeOfDay preferred_time
         +str notes
         +bool is_daily
+        +list~int~ recurrence_days
+        +Frequency frequency
+        +date due_date
+        +bool is_complete
+        +mark_complete()
+        +next_occurrence() CareTask
         +is_high_priority() bool
         +to_dict() dict
     }
@@ -152,6 +159,7 @@ classDiagram
         +CareTask task
         +time start_time
         +time end_time
+        +time_window() str
         +display() str
         +overlaps_with(other) bool
     }
@@ -162,6 +170,7 @@ classDiagram
         +list~CareTask~ skipped_tasks
         +int total_minutes_used
         +str explanation
+        +list~str~ warnings
         +add_scheduled_task(scheduled_task)
         +add_skipped_task(task)
         +get_summary() str
@@ -169,9 +178,15 @@ classDiagram
 
     class Scheduler {
         +generate_schedule(owner, pet, day_start_time) DailySchedule
+        +mark_task_complete(pet, task_title) CareTask
         +sort_by_priority(tasks) list
-        +filter_due_tasks(tasks) list
+        +sort_by_time(tasks) list
+        +filter_due_tasks(tasks, for_date) list
+        +filter_tasks(tasks, ...) list
+        +filter_by_pet_or_status(pets, ...) list
         +fit_to_budget(tasks, available_minutes) list
+        +detect_conflicts(scheduled_tasks) list
+        +conflict_warnings(named_schedules) list
         +assign_times(tasks, start_time) list
         +generate_explanation(schedule) str
     }
@@ -200,6 +215,13 @@ classDiagram
         ANY
     }
 
+    class Frequency {
+        <<enumeration>>
+        NONE
+        DAILY
+        WEEKLY
+    }
+
     Owner "1" *-- "0..*" Pet : has
     Pet "1" *-- "0..*" CareTask : has
     Scheduler --> Owner : uses
@@ -211,6 +233,8 @@ classDiagram
     CareTask --> Priority : uses
     CareTask --> Category : uses
     CareTask --> TimeOfDay : uses
+    CareTask --> Frequency : uses
+```
 
 **b. Design changes**
 
