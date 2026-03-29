@@ -78,6 +78,45 @@ improvements during Module 2.
   with a within-tier duration sort (largest tasks first per
   priority tier) to reduce wasted slack vs. naive first-fit.
 
+## Testing PawPal+
+
+### Running the tests
+
+```bash
+python -m pytest tests/test_pawpal.py -v
+```
+
+### What the tests cover
+
+The test suite has **16 tests** across six groups:
+
+- **Task Completion (1)** — `mark_complete()` flips `is_complete`
+  from False to True.
+- **Task Addition (1)** — `add_task()` grows the pet's task list
+  by exactly one each call.
+- **Sorting (3)** — `sort_by_time` returns
+  MORNING → AFTERNOON → EVENING → ANY; `sort_by_priority` orders
+  HIGH → MEDIUM → LOW; ties within a priority tier break on
+  time of day.
+- **Recurrence (3)** — Completing a DAILY task adds a task due
+  tomorrow; WEEKLY adds one due in 7 days; `Frequency.NONE` tasks
+  never produce a follow-up.
+- **Conflict Detection (5)** — Same-start-time flagged; partial
+  overlap flagged; back-to-back tasks sharing only a boundary are
+  **not** a conflict; `conflict_warnings` returns readable strings;
+  non-overlapping tasks return an empty list.
+- **Edge Cases (3)** — Pet with no tasks produces a valid empty
+  schedule; zero time budget skips all tasks; `remove_task` with
+  an unknown title is a safe no-op.
+
+### Confidence Level
+
+**4 / 5 stars**
+
+The core scheduling pipeline — sorting, filtering, budget fitting, recurrence, and conflict detection — is well-exercised and all 16 tests pass. One star is withheld because the midnight time-wrap edge case (a task starting near 23:59) and multi-pet cross-schedule conflict scenarios are not yet covered, and the greedy `fit_to_budget` is a heuristic that can miss optimal packing combinations.
+
+---
+
 ## Getting started
 
 ### Setup
@@ -97,3 +136,5 @@ pip install -r requirements.txt
 5. Add tests to verify key behaviors.
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
+
+
