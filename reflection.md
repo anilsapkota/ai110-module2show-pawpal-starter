@@ -228,10 +228,26 @@ yes i did several times. I asked gpt to respond to claude's response and fed tha
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
 - How did you decide which constraints mattered most?
 
+sort_by_time() + sort_by_priority() — two-key lambda sorts
+filter_due_tasks(), filter_tasks(), filter_by_pet_or_status() — composable filters
+fit_to_budget() — greedy packing with within-tier duration sort
+mark_task_complete() — auto-generates next recurring occurrence
+conflict_warnings() — warn-not-crash overlap detection across pets
+
+
 **b. Tradeoffs**
 
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
+
+The "HH:MM-HH:MM" string was duplicated inside conflict_warnings(). Extracting it as a small helper on ScheduledTask follows the rule: data knows how to describe itself. display() now calls it too, so the format lives in exactly one place.
+
+Flatten rewritten as a list comprehension 
+
+Before	After
+4 lines, for + for + .append()	4 lines, nested comprehension
+Mutates labelled mid-build	Builds labelled in one expression
+A list comprehension over a nested loop is both idiomatic Python and slightly faster — no repeated attribute lookups for .append, and the interpreter can pre-allocate the result list.
 
 ---
 
